@@ -1,0 +1,190 @@
+global proc shelf_BboxT()
+{
+	shelfButton -label ("BBoxTest") -image1("polySphere.png") -command("CreateBBoxWindow");
+}
+
+global proc CreateBBoxWindow()
+{
+	string $MyWindow = "myWindow"; 
+	if(`window -exists $MyWindow`)
+	{
+		deleteUI($MyWindow);
+	}
+	
+	window -title("Create Bounding Box") -width(500) -height(300) myWindow;
+	
+	
+	columnLayout -adjustableColumn(true);
+	//
+	frameLayout -collapsable(true) -label("Bounding Box Type");
+	
+	checkBox -label("Axis Aligned") -value(true) "AxisAlignedCheck";
+	radioButtonGrp -numberOfRadioButtons(2) -label("Bounding Box Type") -labelArray2 ("Cube")("Sphere") -select(1) selectType;
+	setParent ..;
+	
+	//
+	frameLayout -collapsable(true) -label("Bounding Box Size");
+	
+	floatSliderGrp -label("Offset") -field(on) -minValue(-50) -maxValue(50) -value(0) "OffsetSlider";
+	setParent ..;
+	
+	//
+	frameLayout -collapsable(true) -label("Bounding Box Shader");
+	
+	checkBox -label("Create New Bounding Box Shader") -value(true) "CreateNewBoundingBoxShader";
+	colorSliderGrp -label("Pick Color") -rgb(1)(0)(0) "PickColorSlider";
+	floatSliderGrp -label("Transparency") -field(on) -minValue(0) -maxValue(1) -value(0.5) "TransparencySlider";
+	setParent ..;
+	
+	//
+	frameLayout -collapsable(true) -label("Bounding Box Settings");
+	
+	checkBox -label("Parent Bounding Box with Mesh") "ParentWithMeshCheck";
+	checkBox -label("Lock Bounding Box Attributes") "LockAttributeCheck";
+	checkBox -label("Create Layer for Bounding Box") "CreateLayerCheck";
+	setParent ..;
+	
+	frameLayout -collapsable(false) -label("");
+	setParent ..;
+	
+	//
+	rowLayout -numberOfColumns(3) -columnWidth3(110)(110)(110);
+	
+	button -label("Skapa BBox") -width(100) -command("CreateBBox");
+	button -label("Undo") -width(100) -command("UndoChanges");
+	button -label("Avsluta") -width(100) -command("deleteUI "+($MyWindow));
+	setParent ..;
+	
+	showWindow;
+
+}
+
+global proc CreateBBox()
+{
+		$alignedValue = `checkBox -query -value "AxisAlignedCheck"`;
+		$boundType = `radioButtonGrp -query -select selectType`;
+		$offsetValue = `floatSliderGrp -query -value("OffsetSlider")`;
+		$newBoundingBoxShader = `checkBox -query -value "CreateNewBoundingBoxShader"`;
+		$boundColor = `colorSliderGrp -query -rgbValue("PickColorSlider")`;
+		$transparencyValue = `floatSliderGrp -query -value("TransparencySlider")`;
+		$parentWithValue = `checkBox -query -value "ParentWithMeshCheck"`;
+		$lockAttributeValue = `checkBox -query -value "LockAttributeCheck"`;
+		$createLayerValue = `checkBox -query -value "CreateLayerCheck"`;
+		
+		$selected = selectedNodes();
+		$origMesh = $selected[0];
+		
+		$minValues = getAttr($selected[0] + ".boundingBoxMin");
+		$maxValues = getAttr($selected[0] + ".boundingBoxMax");
+		
+		float $boundX, $boundY, $boundZ;
+		float $boundingBoxRotation[];
+		
+		if(!$alignedValue && $boundType == 1 || $boundType == 2)
+		{
+			xform -centerPivots $selected[0];
+			$boundingBoxRotation = getAttr($selected[0] + ".rotate");
+			setAttr ($selected[0] + ".rotateX") (0);
+			setAttr ($selected[0] + ".rotateY") (0);
+			setAttr ($selected[0] + ".rotateZ") (0);
+			$localBB = `xform -query -objectSpace -boundingBox`;
+			$boundX = $localBB[3] - $localBB[0];
+			$boundY = $localBB[4] - $localBB[1];
+			$boundZ = $localBB[5] - $localBB[2];
+			setAttr ($selected[0] + ".rotateX") ($boundingBoxRotation[0]);
+			setAttr ($selected[0] + ".rotateY") ($boundingBoxRotation[1]);
+			setAttr ($selected[0] + ".rotateZ") ($boundingBoxRotation[2]);
+		}
+		else
+		{
+			$boundX = $maxValues[0] - $minValues[0];
+			$boundY = $maxValues[1] - $minValues[1];
+			$boundZ = $maxValues[2] - $minValues[2];
+		}
+		
+		$centerX = ($maxValues[0] + $minValues[0]) / 2;
+		$centerY = ($maxValues[1] + $minValues[1]) / 2;
+		$centerZ = ($maxValues[2] + $minValues[2]) / 2;
+		
+		string $BBoxMesh[];
+		if($boundType == 1)
+		{
+			$BBoxMesh = `polyCube -name("BBox") -width($boundX + $offsetValue + 0.1) -height($boundY + $offsetValue + 0.1) -depth($boundZ + $offsetValue + 0.1)`;
+		}
+		else
+		{
+			
+			float $biggest = $boundX;
+			int $biggestAxis = 0;
+			if ($biggest < $boundY)
+			{
+				$biggest = $boundY;
+				$biggestAxis = 1;
+			}
+			if ($biggest < $boundZ)
+			{
+				$biggest = $boundZ;
+				$biggestAxis = 2;
+			}
+			
+			float $bRadius;
+			if($biggestAxis = 0 || $biggestAxis = 1)
+			{
+				$bRadius = sqrt(($boundX * $boundX) + ($boundY * $boundY));
+			}
+			else
+			{
+				$bRadius = sqrt(($boundX * $boundX) + ($boundZ * $boundZ));
+			}
+
+			
+			$BBoxMesh = `polySphere -name("BBox") -radius($bRadius / 2 + $offsetValue + 0.1)`;
+		}
+		
+		if(!$alignedValue && $boundType == 1)
+		{
+			rotate -rotateX($boundingBoxRotation[0]) -rotateY($boundingBoxRotation[1]) -rotateZ($boundingBoxRotation[2]);
+		}
+		move -moveX($centerX) -moveY($centerY) -moveZ($centerZ);
+		
+		
+		if($newBoundingBoxShader)
+		{
+			if(!`objExists BBMaterial` )
+			{
+				shadingNode -asShader("lambert") -name("BBMaterial");
+				sets -renderable(true) -noSurfaceShader(true) -empty -name("BBMaterialSG");
+				connectAttr -force("BBMaterial.outColor")("BBMaterialSG.surfaceShader");
+			}
+			setAttr ("BBMaterial.color")($boundColor[0])($boundColor[1])($boundColor[2]);
+			setAttr ("BBMaterial.transparency")($transparencyValue)($transparencyValue)($transparencyValue);
+			select -replace($BBoxMesh[0]);
+			hyperShade -assign ("BBMaterial");
+		}
+		if($parentWithValue)
+		{
+			parent ($origMesh) ($BBoxMesh[0]);
+		}
+		if($lockAttributeValue)
+		{
+			//lockNode ($BBoxMesh[0]);
+			setAttr -lock(on) ($BBoxMesh[0] + ".translate");
+			setAttr -lock(on) ($BBoxMesh[0] + ".rotate");
+			setAttr -lock(on) ($BBoxMesh[0] + ".scale");
+			setAttr -lock(on) ($BBoxMesh[0] + ".shear");
+			setAttr -lock(on) ($BBoxMesh[0] + ".rotateOrder");
+			setAttr -lock(on) ($BBoxMesh[0] + ".rotateAxis");
+			setAttr -lock(on) ($BBoxMesh[0] + ".inheritsTransform");
+		}
+		
+		if($createLayerValue)
+		{
+			createDisplayLayer -name("BoundingBox");
+		}
+		
+}
+	
+global proc UndoChanges()
+{
+	Undo;
+}
